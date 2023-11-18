@@ -15,7 +15,7 @@ int main() {
         std::cout << "Maximum number of threads in a block(maxThreadsDim): x: " << devProp.maxThreadsDim[0] <<
                  ", y: " << devProp.maxThreadsDim[1] << 
                  ", z: " << devProp.maxThreadsDim[2] << std::endl;
-        std::cout << "Maxium number of threads(?) in a grid(maxGridSize): x: " << devProp.maxGridSize[0] <<
+        std::cout << "Maxium number of blocks in a grid(maxGridSize): x: " << devProp.maxGridSize[0] <<
                 ", y: " << devProp.maxGridSize[1] << 
                 ", z: " << devProp.maxGridSize[2] << std::endl;
         std::cout << "devProp.regsPerBlock/Grid: " << devProp.regsPerBlock << std::endl;
