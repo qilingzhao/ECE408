@@ -1,71 +1,125 @@
 #include <iostream>
 #include <cmath>
+#include <cstdlib>
+#include <ctime>
+
+__constant__ size_t TiledSize = 16;
 
 __global__
-void multi_kernel(float* mat_a_d, float* mat_b_d, float* mat_c_d, size_t mat_size) {
-    int c_x = blockDim.x * blockIdx.x + threadIdx.x;
-    int c_y = blockDim.y * blockIdx.y + threadIdx.y;
+void multi_kernel(float* M, float* N, float* P, size_t mat_len) {
+    int bx = blockIdx.x; int by = blockIdx.y;
+    int tx = threadIdx.x; int ty = threadIdx.y;
 
-    if (c_x >= mat_size || c_y >= mat_size) {
-        return;
-    }
+    int gx = bx * TiledSize + tx;
+    int gy = by * TiledSize + ty;
 
-    // load memeory
-    __shared__ float shared_a_block[blockDim.x * blockDim.y];
-    __shared__ float shared_b_block[blockDim.x * blockDim.y];
+    __shared__ float sd_M[TiledSize][TiledSize];
+    __shared__ float sd_N[TiledSize][TiledSize];
 
-    int c_idx = c_x * mat_size + c_y;
-    int shared_idx = threadIdx.x * blockDim.y + threadIdx.y;
-    shared_a_block[shared_idx] = mat_a_d[c_idx];
-    shared_b_block[shared_idx] = mat_b_d[c_idx];
-    __syncthreads();
+    for (int ph = 0; ph < mat_len/TiledSize; ph++) {
+        // load from global memery to shared_memory
+        int Mx = bx * TiledSize + tx;
+        int My = ph * TiledSize + ty;
+        int M_idx = Mx * mat_len + My;
+        sd_M[tx][ty] = (M_idx >= (mat_len * mat_len)) ? 0 : M[M_idx];
 
-    // calculate
-    __shared__ float shared_c_block[blockDim.x * blockDim.y];
-    cudaMemset(shared_c_block, 0, blockDim.x * blockDim.y * sizeof(float));
-    float sum = 0;
-    for (int i = 0; i < blockDim.y; i++) {
-        sum += shared_a_block[threadIdx.x * blockDim.y + i] * 
-                shared_b_block[i * blockDim.y + threadIdx.y];
-    }
-    shared_c_block[threadIdx.x * blockDim.y + threadIdx.y] += sum;
-    __syncthreads();
+        int Nx = ph * TiledSize + tx;
+        int Ny = by * TiledSize + ty;
+        int N_idx = Nx * mat_len + Ny;
+        sd_N[tx][ty] = (N_idx >= (mat_len * mat_len)) ? 0 : N[N_idx];
 
-    for (int i = 0; i < blockDim.x * blockDim.y; i++) {
-        int x_in_block = i / blockDim.x;
-        int y_in_block = i % blockDim.x;
-        int x_in_grid = x_in_block + blockDim.x * blockIdx.x;
-        int y_in_grid = y_in_block + blockDim.y * blockIdx.y;
-        mat_c_d[x_in_grid * mat_size + y_in_grid] = shared_c_block[i];
+        __syncthreads();
+
+        // calculate the value in the TILED
+        float p = 0;
+        for (int i = 0; i < TiledSize; i++) {
+            p += sd_M[tx][i] * sd_N[i][ty];
+        }
+        int P_idx = gx * mat_len + gy;
+        P[P_idx] = (P_idx >= mat_len * mat_len) ? 0 : p;
+        __syncthreads();
     }
 }
 
 // consider two matrixs are the same size square.
 __host__
-void martix_multi(float* mat_a_h, float* mat_b_h, float* mat_c_h, size_t mat_size) {
+void martix_multi(float* mat_a_h, float* mat_b_h, float* mat_c_h, size_t mat_len) {
     float *mat_a_d, *mat_b_d, *mat_c_d;
-    size_t byte_size = mat_size * mat_size * sizeof(float);
+    size_t byte_size = mat_len * mat_len * sizeof(float);
     cudaMalloc((void**)&mat_a_d, byte_size);
     cudaMalloc((void**)&mat_b_d, byte_size);
     cudaMalloc((void**)&mat_c_d, byte_size);
 
     cudaMemcpy(mat_a_d, mat_a_h, byte_size, cudaMemcpyHostToDevice);
     cudaMemcpy(mat_b_d, mat_b_h, byte_size, cudaMemcpyHostToHost);
-    cudaMemset(mat_c_d, 0, byte_size);
 
-    int block_dim_len = 16;
-    dim3 blockSize(block_dim_len, block_dim_len);
-    dim3 gridSize(ceil(mat_size*1.0/block_dim_len), ceil(mat_size*1.0/block_dim_len));
-    multi_kernel<<<gridSize, blockSize>>>(mat_a_d, mat_b_d, mat_c_d, mat_size);
+    dim3 blockSize(TiledSize, TiledSize);
+    dim3 gridSize((mat_len + TiledSize - 1) / TiledSize, (mat_len + TiledSize - 1) / TiledSize);
+    multi_kernel<<<gridSize, blockSize>>>(mat_a_d, mat_b_d, mat_c_d, mat_len);
 
     cudaMemcpy(mat_c_h, mat_c_d, byte_size, cudaMemcpyHostToHost);
     cudaFree(mat_a_d);
     cudaFree(mat_b_d);
     cudaFree(mat_c_d);
 }
+
+// Function to create the matrix and initialize it with random float values
+float* createMatrix(int rows, int cols) {
+    float* matrix = new float[rows * cols];
+
+    // Seed for random number generation
+    std::srand(std::time(nullptr));
+
+    // Initialize the matrix with random float values
+    for (int i = 0; i < rows * cols; i++) {
+        // Generate random float between 0 and 1
+        // You can modify the range as per your requirement
+        matrix[i] = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
+    }
+
+    return matrix;
+}
+
+float* multiplyMatricesCPU(float* matrixA, float* matrixB, int size) {
+    float* resultMatrix = new float[size * size];
+
+    for (int i = 0; i < size; i++) {
+        for (int j = 0; j < size; j++) {
+            resultMatrix[i * size + j] = 0.0f;
+            for (int k = 0; k < size; k++) {
+                resultMatrix[i * size + j] += matrixA[i * size + k] * matrixB[k * size + j];
+            }
+        }
+    }
+
+    return resultMatrix;
+}
+
+bool areEqual(float* array1, float* array2, int size, float epsilon = 1e-6) {
+    for (int i = 0; i < size; i++) {
+        if (std::fabs(array1[i] - array2[i]) > epsilon) {
+            return false;
+        }
+    }
+    return true;
+}
+
 int main() {
     cudaDeviceProp deviceProp;
-    std::cout << "sharedMemPerBlock: " << deviceProp.sharedMemPerBlock << std::endl;
+    std::cout << "sharedMemPerBlock: " << deviceProp.sharedMemPerBlock << " Bytes" << std::endl;
+    const int mat_len = 5000;
+    float* M = createMatrix(mat_len, mat_len);
+    float* N = createMatrix(mat_len, mat_len);
+    float* P = nullptr;
+    martix_multi(M, N, P, mat_len);
+    float* P_cpu = multiplyMatricesCPU(M, N, mat_len);
     
+    bool eq = areEqual(P, P_cpu, mat_len*mat_len);
+    std::cout << (eq ? "equals!" : "not equal.") << std::endl;
+
+    delete[] M;
+    delete[] N;
+    delete[] P;
+    delete[] P_cpu;
     return 0;
 }
