@@ -24,3 +24,12 @@ int main() {
 
     return 0;
 }
+// The output of Tesla T4
+// device count is 1
+// devProp.maxThreadsPerBlock: 1024
+// the number of SMs(devProp.multiProcessorCount): 40
+// clockRate: 1590000
+// Maximum number of threads in a block(maxThreadsDim): x: 1024, y: 1024, z: 64
+// Maxium number of blocks in a grid(maxGridSize): x: 2147483647, y: 65535, z: 65535
+// devProp.regsPerBlock/Grid: 65536
+// devProp.warpSize: 32
