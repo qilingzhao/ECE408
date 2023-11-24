@@ -123,10 +123,11 @@ void printMatrix(float* array, int rows, int cols) {
 
 const int MaxDisplayMatrixLen = 10;
 int main() {
-    // cudaDeviceProp deviceProp;
-    // std::cout << "sharedMemPerBlock: " << deviceProp.sharedMemPerBlock << " Bytes" << std::endl;
-    const int mat_len = 1000;
+    cudaDeviceProp deviceProp;
+    cudaGetDeviceProperties(&deviceProp, 0);
+    std::cout << "sharedMemPerBlock: " << deviceProp.sharedMemPerBlock << " Bytes" << "\t(" << deviceProp.sharedMemPerBlock/1024 << "KB)" << std::endl;
 
+    const int mat_len = :1000;
     // Seed for random number generation
     std::srand(std::time(nullptr));
     float* M = createMatrix(mat_len, mat_len);
